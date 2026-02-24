@@ -1,0 +1,54 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/dashboard/**'
+      - 'docker-compose.prod.yml'
+      - 'deploy/nginx/**'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    name: Deploy Dashboard to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/paypol
+
+            echo "📥 Pulling latest code..."
+            git pull origin main
+
+            echo "🔨 Building dashboard with BuildKit cache..."
+            DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 \
+              docker compose -f docker-compose.prod.yml build dashboard
+
+            echo "🚀 Restarting dashboard..."
+            docker compose -f docker-compose.prod.yml up -d dashboard
+
+            echo "⏳ Waiting for health check..."
+            sleep 10
+
+            # Verify dashboard is healthy
+            for i in 1 2 3 4 5; do
+              if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+                echo "✅ Dashboard is healthy!"
+                break
+              fi
+              echo "  Attempt $i/5 — waiting..."
+              sleep 5
+            done
+
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            echo "✅ Deploy complete!"
