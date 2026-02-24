@@ -67,18 +67,18 @@ jobs:
           NEXT_PUBLIC_MULTISEND_CONTRACT: "0xc0e6F06EfD5A9d40b1018B0ba396A925aBC4cF69"
           NEXT_PUBLIC_NEXUS_V2_CONTRACT: "0x6A467Cd4156093bB528e448C04366586a1052Fab"
           NODE_OPTIONS: "--max-old-space-size=4096"
-        run: npx next build 2>&1
+        run: npx next build 2>&1 | tee /tmp/build-output.txt
 
-      - name: Upload build log on failure
+      - name: Show build error
         if: steps.build.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nextjs-build-log
-          path: apps/dashboard/.next/trace
-
-      - name: Fail if build failed
-        if: steps.build.outcome == 'failure'
-        run: exit 1
+        run: |
+          echo "## ❌ Next.js Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -100 /tmp/build-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "::error::Build failed. See step summary for details."
+          cat /tmp/build-output.txt
+          exit 1
 
   # ── Agent SDK Build & Test ─────────────────────────────
   sdk:
