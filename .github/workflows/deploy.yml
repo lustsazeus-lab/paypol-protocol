@@ -21,6 +21,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
+          command_timeout: 10m
           script: |
             set -e
             cd /opt/paypol
@@ -30,7 +31,15 @@ jobs:
 
             echo "🐘 Ensuring PostgreSQL is running..."
             docker compose -f docker-compose.prod.yml up -d db
-            sleep 5
+            echo "  Waiting for PostgreSQL healthcheck..."
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if docker compose -f docker-compose.prod.yml exec -T db pg_isready -U paypol -d paypol_core > /dev/null 2>&1; then
+                echo "  PostgreSQL is ready!"
+                break
+              fi
+              echo "  Waiting... ($i/10)"
+              sleep 3
+            done
 
             echo "🔨 Building dashboard with BuildKit cache..."
             DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 \
@@ -39,10 +48,9 @@ jobs:
             echo "🚀 Restarting dashboard..."
             docker compose -f docker-compose.prod.yml up -d dashboard
 
-            echo "⏳ Waiting for health check..."
+            echo "⏳ Waiting for dashboard health check..."
             sleep 15
 
-            # Verify dashboard is healthy
             for i in 1 2 3 4 5 6; do
               if curl -sf http://localhost:3000 > /dev/null 2>&1; then
                 echo "✅ Dashboard is healthy!"
@@ -51,6 +59,15 @@ jobs:
               echo "  Attempt $i/6 — waiting..."
               sleep 5
             done
+
+            echo "🗃️ Running database migration + seed via docker exec..."
+            docker compose -f docker-compose.prod.yml exec -T dashboard sh -c '
+              echo "Running prisma db push..."
+              node_modules/.bin/prisma db push --skip-generate --accept-data-loss 2>&1
+              echo "Running agent seed..."
+              node prisma/seed.js 2>&1
+              echo "Database setup complete!"
+            ' || echo "⚠️ DB setup had issues (non-fatal)"
 
             echo "🧹 Cleaning up old images..."
             docker image prune -f
