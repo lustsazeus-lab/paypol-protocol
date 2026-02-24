@@ -28,6 +28,10 @@ jobs:
             echo "📥 Pulling latest code..."
             git pull origin main
 
+            echo "🐘 Ensuring PostgreSQL is running..."
+            docker compose -f docker-compose.prod.yml up -d db
+            sleep 5
+
             echo "🔨 Building dashboard with BuildKit cache..."
             DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 \
               docker compose -f docker-compose.prod.yml build dashboard
@@ -36,15 +40,15 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d dashboard
 
             echo "⏳ Waiting for health check..."
-            sleep 10
+            sleep 15
 
             # Verify dashboard is healthy
-            for i in 1 2 3 4 5; do
+            for i in 1 2 3 4 5 6; do
               if curl -sf http://localhost:3000 > /dev/null 2>&1; then
                 echo "✅ Dashboard is healthy!"
                 break
               fi
-              echo "  Attempt $i/5 — waiting..."
+              echo "  Attempt $i/6 — waiting..."
               sleep 5
             done
 
