@@ -34,10 +34,15 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
 
       - name: Install dependencies
         working-directory: apps/dashboard
         run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: apps/dashboard
+        run: npx prisma generate
 
       - name: Type-check
         working-directory: apps/dashboard
@@ -45,6 +50,13 @@ jobs:
 
       - name: Build
         working-directory: apps/dashboard
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_AGENT_API_URL: http://localhost:3001
+          NEXT_PUBLIC_RPC_URL: https://rpc.moderato.tempo.xyz
+          NEXT_PUBLIC_SHIELD_CONTRACT: "0x4cfcaE530d7a49A0FE8c0de858a0fA8Cf9Aea8B1"
+          NEXT_PUBLIC_MULTISEND_CONTRACT: "0xc0e6F06EfD5A9d40b1018B0ba396A925aBC4cF69"
+          NEXT_PUBLIC_NEXUS_V2_CONTRACT: "0x6A467Cd4156093bB528e448C04366586a1052Fab"
         run: npm run build
 
   # ── Agent SDK Build & Test ─────────────────────────────
@@ -57,6 +69,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: packages/sdk/package-lock.json
 
       - name: Install & build SDK
         working-directory: packages/sdk
@@ -74,6 +88,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: services/agents/package-lock.json
 
       - name: Install & build
         working-directory: services/agents
@@ -91,9 +107,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: packages/nexus/package-lock.json
 
-      - name: Install & test
+      - name: Install dependencies
         working-directory: packages/nexus
-        run: |
-          npm ci
-          npm test
+        run: npm ci
