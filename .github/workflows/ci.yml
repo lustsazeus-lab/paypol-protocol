@@ -57,7 +57,8 @@ jobs:
           NEXT_PUBLIC_SHIELD_CONTRACT: "0x4cfcaE530d7a49A0FE8c0de858a0fA8Cf9Aea8B1"
           NEXT_PUBLIC_MULTISEND_CONTRACT: "0xc0e6F06EfD5A9d40b1018B0ba396A925aBC4cF69"
           NEXT_PUBLIC_NEXUS_V2_CONTRACT: "0x6A467Cd4156093bB528e448C04366586a1052Fab"
-        run: npm run build
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: npx next build
 
   # ── Agent SDK Build & Test ─────────────────────────────
   sdk:
