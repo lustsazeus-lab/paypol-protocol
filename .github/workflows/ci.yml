@@ -48,16 +48,7 @@ jobs:
         working-directory: apps/dashboard
         run: npx tsc --noEmit
 
-      - name: Verify native modules
-        working-directory: apps/dashboard
-        run: |
-          node -e "try { require('sqlite3'); console.log('sqlite3 OK') } catch(e) { console.log('sqlite3 FAIL:', e.message) }"
-          node -e "try { require('@noir-lang/backend_barretenberg'); console.log('barretenberg OK') } catch(e) { console.log('barretenberg FAIL:', e.message) }"
-          node -e "try { require('snarkjs'); console.log('snarkjs OK') } catch(e) { console.log('snarkjs FAIL:', e.message) }"
-
       - name: Build
-        id: build
-        continue-on-error: true
         working-directory: apps/dashboard
         env:
           NEXT_PUBLIC_API_URL: http://localhost:4000
@@ -67,18 +58,7 @@ jobs:
           NEXT_PUBLIC_MULTISEND_CONTRACT: "0xc0e6F06EfD5A9d40b1018B0ba396A925aBC4cF69"
           NEXT_PUBLIC_NEXUS_V2_CONTRACT: "0x6A467Cd4156093bB528e448C04366586a1052Fab"
           NODE_OPTIONS: "--max-old-space-size=4096"
-        run: npx next build 2>&1 | tee /tmp/build-output.txt
-
-      - name: Show build error
-        if: steps.build.outcome == 'failure'
-        run: |
-          echo "## ❌ Next.js Build Failed" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -100 /tmp/build-output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "::error::Build failed. See step summary for details."
-          cat /tmp/build-output.txt
-          exit 1
+        run: npx next build
 
   # ── Agent SDK Build & Test ─────────────────────────────
   sdk:
