@@ -48,14 +48,14 @@ export default function SubPageNav() {
 
     return (
         <nav className="border-b border-white/[0.08] pp-glass sticky top-0 z-50" aria-label="Sub-page navigation">
-            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-12 flex items-center justify-between gap-3">
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
                 {/* Logo → back to Dashboard (skip landing page) */}
                 <Link href="/?app=1" className="flex items-center gap-2 flex-shrink-0 group">
-                    <Image src="/logo.png" alt="PayPol" width={120} height={30} className="h-6 w-auto object-contain opacity-80 group-hover:opacity-100 transition-opacity" priority />
+                    <Image src="/logo.png" alt="PayPol" width={140} height={36} className="h-7 w-auto object-contain opacity-80 group-hover:opacity-100 transition-opacity" priority />
                 </Link>
 
                 {/* Nav Links */}
-                <div className="flex items-center bg-white/[0.03] border border-white/[0.06] rounded-xl px-1 py-0.5 gap-0.5 overflow-x-auto scrollbar-hide">
+                <div className="flex items-center bg-white/[0.03] border border-white/[0.06] rounded-xl px-1.5 py-1 gap-0.5 overflow-x-auto scrollbar-hide">
                     {navLinks.map((link) => {
                         const linkPath = link.href.split('?')[0] || '/';
                         const isActive = pathname === linkPath;
@@ -63,7 +63,7 @@ export default function SubPageNav() {
                             <Link
                                 key={link.href}
                                 href={link.href}
-                                className={`flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all uppercase tracking-wider whitespace-nowrap ${
+                                className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all uppercase tracking-wider whitespace-nowrap ${
                                     isActive
                                         ? 'text-white bg-white/[0.08]'
                                         : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
@@ -77,7 +77,7 @@ export default function SubPageNav() {
                 </div>
 
                 {/* Spacer for alignment */}
-                <div className="w-[120px] hidden sm:block" />
+                <div className="w-[140px] hidden sm:block" />
             </div>
         </nav>
     );

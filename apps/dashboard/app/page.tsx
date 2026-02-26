@@ -32,11 +32,19 @@ export default function Dashboard() {
     const [showLanding, setShowLanding] = useState(true);
     const [isReady, setIsReady] = useState(false);
 
-    // After hydration, check ?app=1 query param to skip landing
+    // After hydration, check ?app=1 query param to skip landing & auto-reconnect wallet
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         if (params.get('app') === '1') {
             setShowLanding(false);
+            // Auto-reconnect wallet silently (eth_accounts doesn't prompt)
+            if (typeof window !== 'undefined' && (window as any).ethereum) {
+                (window as any).ethereum.request({ method: 'eth_accounts' }).then((accounts: string[]) => {
+                    if (accounts.length > 0) {
+                        initializeSession(accounts[0]);
+                    }
+                }).catch(() => {});
+            }
         }
         setIsReady(true);
     }, []);
