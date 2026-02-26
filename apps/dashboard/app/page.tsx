@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
 
 import { PAYPOL_NEXUS_ADDRESS, PAYPOL_MULTISEND_ADDRESS, PAYPOL_SHIELD_ADDRESS, PAYPOL_NEXUS_V2_ADDRESS, NEXUS_ABI, NEXUS_V2_ABI, ERC20_ABI, RPC_URL, SUPPORTED_TOKENS } from './lib/constants';
 
@@ -30,18 +29,18 @@ const LazyFallback = () => (
 );
 
 export default function Dashboard() {
-    const searchParams = useSearchParams();
     const [showLanding, setShowLanding] = useState(true);
     const [isReady, setIsReady] = useState(false); // Prevent flash while checking sessionStorage
 
     // After hydration, check sessionStorage OR ?app=1 query param to skip landing
     useEffect(() => {
-        if (sessionStorage.getItem('paypol_app_launched') || searchParams.get('app') === '1') {
+        const params = new URLSearchParams(window.location.search);
+        if (sessionStorage.getItem('paypol_app_launched') || params.get('app') === '1') {
             sessionStorage.setItem('paypol_app_launched', '1');
             setShowLanding(false);
         }
         setIsReady(true);
-    }, [searchParams]);
+    }, []);
 
     const [currentWorkspace, setCurrentWorkspace] = useState<{ name: string, type: string, admin_wallet: string, id: string } | null | undefined>(undefined);
     const [gatewayMode, setGatewayMode] = useState<'Select' | 'Create' | 'Join'>('Select');
