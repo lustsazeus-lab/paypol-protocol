@@ -40,6 +40,7 @@ services:
       - PORT=3000
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=postgresql://paypol:paypol_production_2024@db:5432/paypol_core
+      - AGENT_SERVICE_URL=http://paypol-agents:3001
     expose:
       - "3000"
     networks:
@@ -47,12 +48,36 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      agents:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # ── Agent Service (32 on-chain agents) ───────────────────
+  agents:
+    build:
+      context: ./services/agents
+      dockerfile: Dockerfile
+    container_name: paypol-agents
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - AGENT_SERVICE_PORT=3001
+      - DAEMON_PRIVATE_KEY=${DAEMON_PRIVATE_KEY:-0x3a573b684c573b069719efebf714c021ac4f6f8480aa397375fe58fa16b93eae}
+    expose:
+      - "3001"
+    networks:
+      - paypol-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # ── Nginx (Reverse Proxy + SSL) ─────────────────────────
   nginx:
