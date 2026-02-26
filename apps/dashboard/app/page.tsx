@@ -222,7 +222,28 @@ export default function Dashboard() {
     const fetchOnChainBalances = useCallback(async (currentUserAddress: string | null = walletAddress, currentToken = activeVaultToken) => { try { const cleanVaultAddress = PAYPOL_SHIELD_ADDRESS.toLowerCase().replace('0x', '').padStart(64, '0'); const vaultPayload = `0x70a08231${cleanVaultAddress}`; const vaultRes = await fetch(RPC_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: currentToken.address, data: vaultPayload }, "latest"] }) }); const vaultJson = await vaultRes.json(); if (vaultJson.result && vaultJson.result !== "0x") setVaultBalance((parseInt(vaultJson.result, 16) / (10 ** currentToken.decimals)).toFixed(2)); if (currentUserAddress && !currentUserAddress.includes('...')) { const cleanUserAddress = currentUserAddress.toLowerCase().replace('0x', '').padStart(64, '0'); const userPayload = `0x70a08231${cleanUserAddress}`; const userRes = await fetch(RPC_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "eth_call", params: [{ to: currentToken.address, data: userPayload }, "latest"] }) }); const userJson = await userRes.json(); if (userJson.result && userJson.result !== "0x") setUserBalance((parseInt(userJson.result, 16) / (10 ** currentToken.decimals)).toFixed(2)); } } catch (e) { console.error("RPC sync failed"); } }, [walletAddress, activeVaultToken]);
 
     const initializeSession = async (wallet: string) => { setWalletAddress(wallet); try { const res = await fetch(`/api/workspace?wallet=${wallet}`); const data = await res.json(); if (data.workspace) { setCurrentWorkspace(data.workspace); localStorage.removeItem('paypol_joined_workspace'); showToast('success', `Authenticated as Administrator for ${data.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { const joinedAdminWallet = localStorage.getItem('paypol_joined_workspace'); if (joinedAdminWallet) { const joinRes = await fetch(`/api/workspace?wallet=${joinedAdminWallet}`); const joinData = await joinRes.json(); if (joinData.workspace) { setCurrentWorkspace(joinData.workspace); showToast('success', `Authenticated as Contributor for ${joinData.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { localStorage.removeItem('paypol_joined_workspace'); setCurrentWorkspace(null); } } else setCurrentWorkspace(null); } } catch (e) { showToast('error', 'Gateway connection failed.'); } };
-    const connectWallet = useCallback(async () => { try { const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' }); await initializeSession(accounts[0]); } catch (error) { showToast('error', 'Connection request declined.'); } }, [showToast]);
+    const ensureTempoNetwork = useCallback(async () => {
+        const TEMPO_CHAIN_ID = '0xa5df'; // 42431
+        const currentChainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
+        if (currentChainId === TEMPO_CHAIN_ID) return;
+        try {
+            await (window as any).ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: TEMPO_CHAIN_ID }] });
+        } catch (switchError: any) {
+            if (switchError.code === 4902) {
+                await (window as any).ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: TEMPO_CHAIN_ID,
+                        chainName: 'Tempo Moderato Testnet',
+                        nativeCurrency: { name: 'TEMPO', symbol: 'TEMPO', decimals: 18 },
+                        rpcUrls: ['https://rpc.moderato.tempo.xyz'],
+                        blockExplorerUrls: ['https://explore.tempo.xyz'],
+                    }],
+                });
+            } else { throw switchError; }
+        }
+    }, []);
+    const connectWallet = useCallback(async () => { try { await ensureTempoNetwork(); const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' }); await initializeSession(accounts[0]); } catch (error) { showToast('error', 'Connection request declined.'); } }, [showToast, ensureTempoNetwork]);
     const disconnectWallet = useCallback(() => { setWalletAddress(null); setCurrentWorkspace(undefined); setUserBalance("0.00"); setShowLanding(true); showToast('success', 'Session disconnected.'); }, [showToast]);
     const deployWorkspace = useCallback(async (e: React.FormEvent) => { e.preventDefault(); if (!walletAddress || !ack1 || !ack2 || !ack3) return showToast('error', 'Complete security checks first.'); setIsDeployingWorkspace(true); try { const signMessage = `PAYPOL GENESIS INITIALIZATION\n\nEstablishing Workspace: "${setupName}".\n\nI acknowledge this wallet (${walletAddress}) will become the permanent Master Administrator.`; const signPromise = (window as any).ethereum.request({ method: 'personal_sign', params: [signMessage, walletAddress] }); const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Wallet signature timed out. Please try again.')), 60000)); await Promise.race([signPromise, timeoutPromise]); const res = await fetch('/api/workspace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminWallet: walletAddress, name: setupName, type: setupType }) }); const data = await res.json(); if (res.ok) { setCurrentWorkspace(data.workspace); showToast('success', 'Smart Vault deployed successfully.'); fetchOnChainBalances(walletAddress, activeVaultToken); } else showToast('error', data.error || 'Deployment failed.'); } catch (error: any) { console.error('Deploy workspace error:', error); showToast('error', error.code === 4001 || error.message?.includes('rejected') ? 'Signature rejected by wallet.' : error.message || 'Deployment failed.'); } finally { setIsDeployingWorkspace(false); } }, [walletAddress, ack1, ack2, ack3, setupName, setupType, showToast, fetchOnChainBalances, activeVaultToken]);
     const joinWorkspace = useCallback(async (e: React.FormEvent) => { e.preventDefault(); if (!joinAdminWallet.trim() || !joinAdminWallet.startsWith('0x')) return showToast('error', 'Invalid address format.'); try { const res = await fetch(`/api/workspace?wallet=${joinAdminWallet}`); const data = await res.json(); if (data.workspace) { localStorage.setItem('paypol_joined_workspace', data.workspace.admin_wallet); setCurrentWorkspace(data.workspace); showToast('success', `Joined ${data.workspace.name} as Contributor.`); fetchOnChainBalances(walletAddress, activeVaultToken); } else showToast('error', 'Workspace not found.'); } catch (e) { showToast('error', 'Network error.'); } }, [joinAdminWallet, showToast, fetchOnChainBalances, walletAddress, activeVaultToken]);
@@ -370,6 +391,9 @@ export default function Dashboard() {
 
         try {
             if (typeof (window as any).ethereum === 'undefined') throw new Error("MetaMask is not installed.");
+
+            // Auto-switch to Tempo network before signing
+            await ensureTempoNetwork();
 
             // Dynamic import - ethers.js (472KB) only loaded when actually needed
             const { ethers } = await import('ethers');
