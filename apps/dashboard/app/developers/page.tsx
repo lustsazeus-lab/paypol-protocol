@@ -393,7 +393,7 @@ export default function DevelopersPage() {
             {/* ═══ TOP NAV ═══ */}
             <nav className="sticky top-0 z-50 bg-[#0B1120]/80 backdrop-blur-xl border-b border-white/5">
                 <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-                    <a href="/" className="flex items-center gap-3 group">
+                    <a href="/?app=1" className="flex items-center gap-3 group">
                         <Image src="/logo.png" alt="PayPol" width={120} height={32} className="h-8 w-auto object-contain" />
                         <span className="text-xs font-mono text-slate-500 border border-white/5 px-2 py-0.5 rounded-md">developers</span>
                     </a>
@@ -401,7 +401,7 @@ export default function DevelopersPage() {
                         <a href="/docs/documentation" className="text-xs text-slate-400 hover:text-white transition-colors flex items-center gap-1.5">
                             <BookOpenIcon className="w-4 h-4" /> Docs
                         </a>
-                        <a href="/" className="text-xs text-slate-400 hover:text-white transition-colors flex items-center gap-1.5">
+                        <a href="/?app=1" className="text-xs text-slate-400 hover:text-white transition-colors flex items-center gap-1.5">
                             <HomeIcon className="w-4 h-4" /> Dashboard
                         </a>
                     </div>

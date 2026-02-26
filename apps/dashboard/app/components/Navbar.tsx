@@ -105,7 +105,7 @@ function Navbar({
                         )}
 
                         <Link href="/" className="flex items-center gap-2.5 group">
-                            <Image src="/logo.png" alt="PayPol" width={140} height={36} className="h-7 w-auto object-contain drop-shadow-[0_0_12px_rgba(255,255,255,0.1)] group-hover:drop-shadow-[0_0_18px_rgba(255,255,255,0.2)] transition-all" priority />
+                            <Image src="/logo.png" alt="PayPol" width={180} height={44} className="h-9 w-auto object-contain drop-shadow-[0_0_12px_rgba(255,255,255,0.1)] group-hover:drop-shadow-[0_0_18px_rgba(255,255,255,0.2)] transition-all" priority />
                         </Link>
 
                         {currentWorkspace && (

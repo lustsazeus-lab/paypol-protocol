@@ -242,7 +242,7 @@ export default function PayPolAdminPage() {
                 {/* Bottom: Back to Dashboard */}
                 <div className="p-3 border-t border-white/[0.06]">
                     <a
-                        href="/"
+                        href="/?app=1"
                         className={`w-full flex items-center gap-3 rounded-xl text-slate-500 hover:text-white hover:bg-white/[0.03] transition-all ${
                             sidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'
                         }`}
