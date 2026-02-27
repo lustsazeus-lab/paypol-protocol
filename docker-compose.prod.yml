@@ -45,6 +45,7 @@ services:
       - "3000"
     networks:
       - paypol-net
+      - coolify
     depends_on:
       db:
         condition: service_healthy
@@ -115,3 +116,5 @@ volumes:
 networks:
   paypol-net:
     driver: bridge
+  coolify:
+    external: true
