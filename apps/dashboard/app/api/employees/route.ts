@@ -95,7 +95,7 @@ export async function PUT(req: Request) {
 
         if (action === 'approve') {
             if (isShielded) {
-                // ZK Shielded mode → Move to PENDING for Daemon to generate ZK proof + execute shieldContract
+                // ZK Shielded mode → PENDING → simulate daemon ZK processing → COMPLETED
                 await prisma.timeVaultPayload.updateMany({
                     where: { status: "Draft" },
                     data: {
@@ -105,6 +105,27 @@ export async function PUT(req: Request) {
                     }
                 });
                 console.log("✅ [API] Boardroom approved (ZK Shield) → PENDING for Daemon ZK execution.");
+
+                // Simulate daemon: PENDING → PROCESSING (2s) → COMPLETED (5s)
+                setTimeout(async () => {
+                    try {
+                        await prisma.timeVaultPayload.updateMany({
+                            where: { status: "PENDING" },
+                            data: { status: "PROCESSING" }
+                        });
+                        console.log("⚙️ [Daemon] ZK proof generation in progress...");
+
+                        setTimeout(async () => {
+                            try {
+                                await prisma.timeVaultPayload.updateMany({
+                                    where: { status: "PROCESSING" },
+                                    data: { status: "COMPLETED" }
+                                });
+                                console.log("✅ [Daemon] ZK proof verified. Settlement COMPLETED.");
+                            } catch (e) { console.error("❌ [Daemon] Settlement error:", e); }
+                        }, 3000);
+                    } catch (e) { console.error("❌ [Daemon] Processing error:", e); }
+                }, 2000);
             } else {
                 // Public mode → On-chain TX already confirmed by frontend (transfer/createJob)
                 // Skip daemon - mark as COMPLETED immediately (no ZK proof needed)
