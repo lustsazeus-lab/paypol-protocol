@@ -224,23 +224,29 @@ export default function Dashboard() {
     const initializeSession = async (wallet: string) => { setWalletAddress(wallet); try { const res = await fetch(`/api/workspace?wallet=${wallet}`); const data = await res.json(); if (data.workspace) { setCurrentWorkspace(data.workspace); localStorage.removeItem('paypol_joined_workspace'); showToast('success', `Authenticated as Administrator for ${data.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { const joinedAdminWallet = localStorage.getItem('paypol_joined_workspace'); if (joinedAdminWallet) { const joinRes = await fetch(`/api/workspace?wallet=${joinedAdminWallet}`); const joinData = await joinRes.json(); if (joinData.workspace) { setCurrentWorkspace(joinData.workspace); showToast('success', `Authenticated as Contributor for ${joinData.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { localStorage.removeItem('paypol_joined_workspace'); setCurrentWorkspace(null); } } else setCurrentWorkspace(null); } } catch (e) { showToast('error', 'Gateway connection failed.'); } };
     const ensureTempoNetwork = useCallback(async () => {
         const TEMPO_CHAIN_ID = '0xa5df'; // 42431
-        const currentChainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
-        if (currentChainId === TEMPO_CHAIN_ID) return;
+        const TEMPO_CHAIN_CONFIG = {
+            chainId: TEMPO_CHAIN_ID,
+            chainName: 'Tempo Moderato Testnet',
+            nativeCurrency: { name: 'TEMPO', symbol: 'TEMPO', decimals: 18 },
+            rpcUrls: ['https://rpc.moderato.tempo.xyz'],
+            blockExplorerUrls: ['https://explore.tempo.xyz'],
+        };
+        try {
+            const currentChainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
+            if (currentChainId === TEMPO_CHAIN_ID) return;
+        } catch { /* ignore */ }
         try {
             await (window as any).ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: TEMPO_CHAIN_ID }] });
         } catch (switchError: any) {
-            if (switchError.code === 4902) {
-                await (window as any).ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                        chainId: TEMPO_CHAIN_ID,
-                        chainName: 'Tempo Moderato Testnet',
-                        nativeCurrency: { name: 'TEMPO', symbol: 'TEMPO', decimals: 18 },
-                        rpcUrls: ['https://rpc.moderato.tempo.xyz'],
-                        blockExplorerUrls: ['https://explore.tempo.xyz'],
-                    }],
-                });
-            } else { throw switchError; }
+            // User rejected — don't force add
+            if (switchError.code === 4001) throw switchError;
+            // Chain not found (4902) or any other error — try adding it
+            try {
+                await (window as any).ethereum.request({ method: 'wallet_addEthereumChain', params: [TEMPO_CHAIN_CONFIG] });
+            } catch (addError: any) {
+                if (addError.code === 4001) throw addError;
+                console.warn('Failed to add Tempo network:', addError);
+            }
         }
     }, []);
     const connectWallet = useCallback(async () => {
