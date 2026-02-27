@@ -61,6 +61,9 @@ COPY --from=deps /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/prisma ./prisma
 
+# Copy ZK circuit artifacts for snarkjs proof generation
+COPY --from=builder /app/circuits ./circuits
+
 # Make startup script executable + ensure writable
 RUN chmod +x ./prisma/start.sh && chown -R nextjs:nodejs /app
 
