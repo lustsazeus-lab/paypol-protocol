@@ -91,10 +91,25 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
     try {
         const body = await req.json();
-        const { action, isShielded, batchTxHash } = body;
+        const { action, isShielded, batchTxHash, isAgentMode } = body;
 
         if (action === 'approve') {
-            if (isShielded) {
+            if (isAgentMode) {
+                // ═══ AGENT MODE: Always COMPLETED directly ═══
+                // Agent payments use NexusV2 on-chain escrow (handled by frontend).
+                // No daemon needed — NexusV2 contract manages the trustless settlement.
+                // ZK Shield toggle does NOT affect agent escrow flow.
+                await prisma.timeVaultPayload.updateMany({
+                    where: { status: "Draft" },
+                    data: {
+                        status: "COMPLETED",
+                        isShielded: isShielded || false,
+                        zkCommitment: batchTxHash || null
+                    }
+                });
+                console.log(`✅ [API] Agent escrow approved → COMPLETED (NexusV2 on-chain). ZK Shield: ${isShielded}`);
+            } else if (isShielded) {
+                // ═══ PAYROLL ZK SHIELDED: Daemon simulation ═══
                 // ZK Shielded mode → PENDING → simulate daemon ZK processing → COMPLETED
                 await prisma.timeVaultPayload.updateMany({
                     where: { status: "Draft" },
@@ -127,6 +142,7 @@ export async function PUT(req: Request) {
                     } catch (e) { console.error("❌ [Daemon] Processing error:", e); }
                 }, 2000);
             } else {
+                // ═══ PAYROLL PUBLIC: Direct completion ═══
                 // Public mode → On-chain TX already confirmed by frontend (transfer/createJob)
                 // Skip daemon - mark as COMPLETED immediately (no ZK proof needed)
                 await prisma.timeVaultPayload.updateMany({

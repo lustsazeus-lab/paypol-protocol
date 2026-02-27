@@ -436,9 +436,11 @@ export default function Dashboard() {
 
             let activeTxHash = "";
 
-            if (isAgentMode && !usePhantomShield) {
+            if (isAgentMode) {
                 // ═══ NexusV2: 2-step ERC20 Escrow Flow ═══
-                // Step 1: Approve NexusV2 contract to spend employer's ERC20 tokens
+                // ALWAYS use NexusV2 for Agent escrow, regardless of ZK Shield toggle.
+                // ZK Shield only applies to Payroll payments (salary privacy).
+                // Agent escrow requires NexusV2 contract for trustless settlement.
                 showToast('success', 'Step 1/2: Approving token spend...');
                 const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
                 const approveTx = await tokenContract.approve(PAYPOL_NEXUS_V2_ADDRESS, amountInUnits);
@@ -491,7 +493,7 @@ export default function Dashboard() {
                         })
                     });
                 }
-                showToast('success', 'Escrow locked on-chain! Agent will begin work.');
+                showToast('success', usePhantomShield ? 'Escrow locked on-chain with ZK Shield! Agent will begin work.' : 'Escrow locked on-chain! Agent will begin work.');
             } else {
                 showToast('success', `Depositing ${totalRequiredAmount} AlphaUSD to Vault...`);
                 const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
@@ -504,7 +506,7 @@ export default function Dashboard() {
             await fetch('/api/employees', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'approve', isShielded: usePhantomShield, batchTxHash: activeTxHash })
+                body: JSON.stringify({ action: 'approve', isShielded: usePhantomShield, batchTxHash: activeTxHash, isAgentMode })
             });
 
             setAwaitingTxs([]);
