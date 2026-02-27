@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 
-import { PAYPOL_NEXUS_ADDRESS, PAYPOL_MULTISEND_ADDRESS, PAYPOL_SHIELD_ADDRESS, PAYPOL_NEXUS_V2_ADDRESS, NEXUS_ABI, NEXUS_V2_ABI, ERC20_ABI, RPC_URL, SUPPORTED_TOKENS } from './lib/constants';
+import { PAYPOL_NEXUS_ADDRESS, PAYPOL_MULTISEND_ADDRESS, PAYPOL_SHIELD_ADDRESS, PAYPOL_SHIELD_V2_ADDRESS, PAYPOL_NEXUS_V2_ADDRESS, AI_PROOF_REGISTRY_ADDRESS, NEXUS_ABI, NEXUS_V2_ABI, SHIELD_V2_ABI, AI_PROOF_REGISTRY_ABI, ERC20_ABI, RPC_URL, SUPPORTED_TOKENS } from './lib/constants';
 
 // Direct imports for critical above-the-fold components
 import Navbar from './components/Navbar';
@@ -432,7 +432,7 @@ export default function Dashboard() {
 
             const totalRequiredAmount = awaitingTotalAmountNum;
             const amountInUnits = ethers.parseUnits(totalRequiredAmount.toFixed(tokenDecimals), tokenDecimals);
-            const targetVault = usePhantomShield ? PAYPOL_SHIELD_ADDRESS : PAYPOL_MULTISEND_ADDRESS;
+            // Target vault determined per-flow below (ShieldVaultV2 for ZK, Multisend for public)
 
             let activeTxHash = "";
 
@@ -494,20 +494,80 @@ export default function Dashboard() {
                     });
                 }
                 showToast('success', usePhantomShield ? 'Escrow locked on-chain with ZK Shield! Agent will begin work.' : 'Escrow locked on-chain! Agent will begin work.');
+            } else if (usePhantomShield) {
+                // ═══ PAYROLL ZK SHIELDED: Real ShieldVaultV2 Deposit ═══
+                // 1. Generate Poseidon commitment via /api/shield
+                // 2. ERC20 approve → ShieldVaultV2.deposit(commitment, amount)
+                // 3. Daemon picks up PENDING → generates ZK proof → calls executeShieldedPayout on-chain
+                const rawRecipient = awaitingTxs[0].wallet_address || awaitingTxs[0].address || awaitingTxs[0].recipientWallet || awaitingTxs[0].wallet || "0x0000000000000000000000000000000000000001";
+                showToast('success', 'Generating ZK commitment...');
+
+                const commitRes = await fetch('/api/shield', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'generate_commitment',
+                        amount: totalRequiredAmount,
+                        recipient: rawRecipient,
+                        tokenDecimals: tokenDecimals,
+                    })
+                });
+                const commitData = await commitRes.json();
+                if (!commitData.success) throw new Error(commitData.error || 'Failed to generate ZK commitment');
+
+                const { commitment, nullifierHash, secret, nullifier, scaledAmount } = commitData;
+
+                // Step 1: Approve ShieldVaultV2 to spend tokens
+                showToast('success', 'Step 1/2: Approving ShieldVaultV2...');
+                const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+                const approveTx = await tokenContract.approve(PAYPOL_SHIELD_V2_ADDRESS, amountInUnits);
+                await approveTx.wait();
+
+                // Step 2: Deposit with Poseidon commitment on-chain
+                showToast('success', 'Step 2/2: Depositing with ZK commitment...');
+                const shieldVault = new ethers.Contract(PAYPOL_SHIELD_V2_ADDRESS, SHIELD_V2_ABI, signer);
+                const depositTx = await shieldVault.deposit(commitment, amountInUnits, { gasLimit: 500000 });
+                activeTxHash = depositTx.hash;
+                await depositTx.wait();
+
+                showToast('success', 'ZK Deposit confirmed! Daemon will generate proof...');
+
+                // Pass ZK data to employees API for daemon to process
+                await fetch('/api/employees', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'approve',
+                        isShielded: true,
+                        isAgentMode: false,
+                        batchTxHash: activeTxHash,
+                        zkData: { commitment, nullifierHash, secret, nullifier, depositTxHash: activeTxHash, scaledAmount }
+                    })
+                });
             } else {
+                // ═══ PAYROLL PUBLIC: Direct transfer (no ZK) ═══
                 showToast('success', `Depositing ${totalRequiredAmount} AlphaUSD to Vault...`);
                 const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-                const txResponse = await tokenContract.transfer(targetVault, amountInUnits);
+                const txResponse = await tokenContract.transfer(PAYPOL_MULTISEND_ADDRESS, amountInUnits);
                 activeTxHash = txResponse.hash;
                 await txResponse.wait();
-                showToast('success', 'Deposit confirmed! Waking up Daemon...');
+                showToast('success', 'Deposit confirmed!');
+
+                await fetch('/api/employees', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'approve', isShielded: false, batchTxHash: activeTxHash, isAgentMode: false })
+                });
             }
 
-            await fetch('/api/employees', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'approve', isShielded: usePhantomShield, batchTxHash: activeTxHash, isAgentMode })
-            });
+            // For Agent mode, the PUT was already called inside the agent block
+            if (isAgentMode) {
+                await fetch('/api/employees', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'approve', isShielded: usePhantomShield, batchTxHash: activeTxHash, isAgentMode: true })
+                });
+            }
 
             setAwaitingTxs([]);
             await fetchData();

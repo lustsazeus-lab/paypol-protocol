@@ -1,7 +1,28 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/app/lib/prisma';
+import { ethers } from 'ethers';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://localhost:3001';
+const RPC_URL = "https://rpc.moderato.tempo.xyz";
+const AI_PROOF_REGISTRY_ADDRESS = "0x8fDB8E871c9eaF2955009566F41490Bbb128a014";
+
+const AI_PROOF_REGISTRY_ABI = [
+    "function commit(bytes32 planHash, uint256 nexusJobId) external returns (bytes32)",
+    "function verify(bytes32 commitmentId, bytes32 resultHash) external",
+    "event CommitmentMade(bytes32 indexed commitmentId, address indexed agent, uint256 indexed nexusJobId, bytes32 planHash)",
+    "event CommitmentVerified(bytes32 indexed commitmentId, bool matched, bytes32 resultHash)",
+];
+
+/**
+ * Get daemon wallet for signing AIProofRegistry transactions.
+ * Returns null if DAEMON_PRIVATE_KEY is not configured.
+ */
+function getDaemonWallet(): ethers.Wallet | null {
+    const pk = process.env.DAEMON_PRIVATE_KEY;
+    if (!pk) return null;
+    const provider = new ethers.JsonRpcProvider(RPC_URL);
+    return new ethers.Wallet(pk, provider);
+}
 
 export async function POST(req: Request) {
     try {
@@ -27,6 +48,56 @@ export async function POST(req: Request) {
             where: { id: jobId },
             data: { status: 'EXECUTING' },
         });
+
+        // ═══════════════════════════════════════════════════════
+        // AI PROOF REGISTRY — Pre-Execution Commitment
+        // Hash the agent's plan (prompt + task) and commit on-chain
+        // ═══════════════════════════════════════════════════════
+        let commitmentId: string | null = null;
+        let planHash: string | null = null;
+        let commitTxHash: string | null = null;
+
+        try {
+            const daemonWallet = getDaemonWallet();
+            if (daemonWallet && job.onChainJobId) {
+                const registry = new ethers.Contract(AI_PROOF_REGISTRY_ADDRESS, AI_PROOF_REGISTRY_ABI, daemonWallet);
+
+                // planHash = keccak256(prompt + taskDescription)
+                const planString = (job.prompt || '') + (job.taskDescription || '');
+                planHash = ethers.keccak256(ethers.toUtf8Bytes(planString));
+
+                console.log(`🔐 [AIProof] Committing planHash for Job #${job.onChainJobId}: ${planHash.slice(0, 20)}...`);
+
+                const commitTx = await registry.commit(
+                    planHash,
+                    job.onChainJobId,
+                    { gasLimit: 300000, type: 0 }
+                );
+                const receipt = await commitTx.wait(1);
+                commitTxHash = commitTx.hash;
+                const iface = new ethers.Interface(AI_PROOF_REGISTRY_ABI);
+                for (const log of receipt.logs) {
+                    try {
+                        const parsed = iface.parseLog({ topics: log.topics as string[], data: log.data });
+                        if (parsed && parsed.name === 'CommitmentMade') {
+                            commitmentId = parsed.args[0]; // commitmentId (bytes32)
+                            break;
+                        }
+                    } catch { /* skip non-matching logs */ }
+                }
+
+                // Store commitment data immediately
+                await prisma.agentJob.update({
+                    where: { id: jobId },
+                    data: { planHash, commitmentId, commitTxHash },
+                });
+
+                console.log(`✅ [AIProof] Commitment recorded. ID: ${commitmentId?.slice(0, 20)}... TX: ${commitTxHash}`);
+            }
+        } catch (proofError: any) {
+            console.error(`⚠️ [AIProof] Commitment failed (non-blocking):`, proofError.reason || proofError.message);
+            // Non-blocking: agent execution continues even if proof commitment fails
+        }
 
         const startTime = Date.now();
         let result: any = null;
@@ -101,7 +172,51 @@ export async function POST(req: Request) {
 
         const executionTime = Math.round((Date.now() - startTime) / 1000);
 
-        // 3. Update job with result
+        // ═══════════════════════════════════════════════════════
+        // AI PROOF REGISTRY — Post-Execution Verification
+        // Hash the result and verify on-chain against the commitment
+        // ═══════════════════════════════════════════════════════
+        let resultHash: string | null = null;
+        let verifyTxHash: string | null = null;
+        let proofMatched: boolean | null = null;
+
+        try {
+            const daemonWallet = getDaemonWallet();
+            if (daemonWallet && commitmentId && finalStatus === 'COMPLETED') {
+                const registry = new ethers.Contract(AI_PROOF_REGISTRY_ADDRESS, AI_PROOF_REGISTRY_ABI, daemonWallet);
+
+                // resultHash = keccak256(JSON.stringify(result))
+                resultHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(result)));
+
+                console.log(`🔐 [AIProof] Verifying result for commitment ${commitmentId.slice(0, 20)}...`);
+
+                const verifyTx = await registry.verify(
+                    commitmentId,
+                    resultHash,
+                    { gasLimit: 300000, type: 0 }
+                );
+                const verifyReceipt = await verifyTx.wait(1);
+                verifyTxHash = verifyTx.hash;
+
+                // Parse proofMatched from CommitmentVerified event
+                const iface = new ethers.Interface(AI_PROOF_REGISTRY_ABI);
+                for (const log of verifyReceipt.logs) {
+                    try {
+                        const parsed = iface.parseLog({ topics: log.topics as string[], data: log.data });
+                        if (parsed && parsed.name === 'CommitmentVerified') {
+                            proofMatched = parsed.args[1]; // matched (bool)
+                            break;
+                        }
+                    } catch { /* skip non-matching logs */ }
+                }
+
+                console.log(`✅ [AIProof] Verification complete. Matched: ${proofMatched}. TX: ${verifyTxHash}`);
+            }
+        } catch (verifyError: any) {
+            console.error(`⚠️ [AIProof] Verification failed (non-blocking):`, verifyError.reason || verifyError.message);
+        }
+
+        // 3. Update job with result + AI proof data
         await prisma.agentJob.update({
             where: { id: jobId },
             data: {
@@ -109,6 +224,9 @@ export async function POST(req: Request) {
                 result: JSON.stringify(result),
                 executionTime,
                 completedAt: new Date(),
+                ...(resultHash && { resultHash }),
+                ...(verifyTxHash && { verifyTxHash }),
+                ...(proofMatched !== null && { proofMatched }),
             },
         });
 

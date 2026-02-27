@@ -41,6 +41,7 @@ services:
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=postgresql://paypol:paypol_production_2024@db:5432/paypol_core
       - AGENT_SERVICE_URL=http://paypol-agents:3001
+      - DAEMON_PRIVATE_KEY=${DAEMON_PRIVATE_KEY:-0x3a573b684c573b069719efebf714c021ac4f6f8480aa397375fe58fa16b93eae}
     expose:
       - "3000"
     networks:
@@ -79,6 +80,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # ── ZK Daemon (Proof Generator + Escrow Settler) ────────
+  daemon:
+    build:
+      context: ./services/daemon
+      dockerfile: Dockerfile
+    container_name: paypol-daemon
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://paypol:paypol_production_2024@db:5432/paypol_core
+      - DAEMON_PRIVATE_KEY=${DAEMON_PRIVATE_KEY:-0x3a573b684c573b069719efebf714c021ac4f6f8480aa397375fe58fa16b93eae}
+      - SHIELD_V2_ADDRESS=0x3B4b47971B61cB502DD97eAD9cAF0552ffae0055
+      - NEXUS_V2_ADDRESS=0x6A467Cd4156093bB528e448C04366586a1052Fab
+    networks:
+      - paypol-net
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "daemon.ts"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ── Nginx (Reverse Proxy + SSL) ─────────────────────────
   nginx:

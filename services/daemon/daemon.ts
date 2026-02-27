@@ -22,11 +22,11 @@ dotenv.config();
 // ==========================================
 const RPC_URL = "https://rpc.moderato.tempo.xyz";
 const PAYPOL_SHIELD_ADDRESS = "0x4cfcaE530d7a49A0FE8c0de858a0fA8Cf9Aea8B1";
-// V2 Shield Vault (set after deployment - falls back to V1 if not deployed)
-const PAYPOL_SHIELD_V2_ADDRESS = process.env.SHIELD_V2_ADDRESS || "";
+// V2 Shield Vault — Deployed & verified on Tempo Moderato (chain 42431)
+const PAYPOL_SHIELD_V2_ADDRESS = process.env.SHIELD_V2_ADDRESS || "0x3B4b47971B61cB502DD97eAD9cAF0552ffae0055";
 
 // NexusV2 - A2A Escrow Lifecycle (deployed to Tempo testnet)
-const PAYPOL_NEXUS_V2_ADDRESS = "0x3Bc01ecc428Ca0Ff76c433F8B3B46D00edE15837";
+const PAYPOL_NEXUS_V2_ADDRESS = process.env.NEXUS_V2_ADDRESS || "0x6A467Cd4156093bB528e448C04366586a1052Fab";
 
 if (!process.env.DAEMON_PRIVATE_KEY) {
     throw new Error("🚨 DAEMON_PRIVATE_KEY is missing in .env file");
@@ -82,9 +82,10 @@ class PayPolDaemon {
         this.nexusV2Contract = new ethers.Contract(PAYPOL_NEXUS_V2_ADDRESS, NEXUS_V2_ABI, this.wallet);
         this.prisma = new PrismaClient();
 
-        // Auto-detect V2 circuit files
-        const v2WasmPath = path.join(__dirname, "..", "..", "apps", "dashboard", "public", "zk", "paypol_shield_v2.wasm");
-        this.useV2Circuit = fs.existsSync(v2WasmPath) && !!PAYPOL_SHIELD_V2_ADDRESS;
+        // Auto-detect V2 circuit files (try Docker path first, then monorepo path)
+        const dockerWasm = path.join(__dirname, "circuits", "paypol_shield_v2.wasm");
+        const monoWasm = path.join(__dirname, "..", "..", "packages", "circuits", "paypol_shield_v2_js", "paypol_shield_v2.wasm");
+        this.useV2Circuit = (fs.existsSync(dockerWasm) || fs.existsSync(monoWasm)) && !!PAYPOL_SHIELD_V2_ADDRESS;
     }
 
     public async start() {
@@ -133,7 +134,7 @@ class PayPolDaemon {
     private async processBatch(jobs: any[]) {
         for (const job of jobs) {
             console.log(`[DAEMON] ⚙️ Processing Job ID: ${job.id} for ${job.recipientWallet}`);
-            
+
             try {
                 await this.prisma.timeVaultPayload.update({
                     where: { id: job.id },
@@ -149,9 +150,35 @@ class PayPolDaemon {
                 let tx: any;
 
                 if (this.useV2Circuit && this.shieldContractV2) {
-                    // ═══ V2 PATH: Nullifier Anti-Double-Spend ═══
-                    const { proofArray, pubSignals, secret, nullifier, commitment } =
-                        await this.generateZKProofV2(job.recipientWallet, scaledAmountWei.toString());
+                    // ═══ V2 PATH: Read stored secrets from DB ═══
+                    // Frontend already deposited with commitment. We read the stored
+                    // (secret, nullifier) to generate a matching ZK proof.
+                    let storedSecret: string | null = null;
+                    let storedNullifier: string | null = null;
+
+                    if (job.zkProof) {
+                        try {
+                            const zkData = JSON.parse(job.zkProof);
+                            storedSecret = zkData.secret;
+                            storedNullifier = zkData.nullifier;
+                        } catch { /* Not JSON — legacy format, generate fresh */ }
+                    }
+
+                    let proofResult;
+                    if (storedSecret && storedNullifier) {
+                        // Use stored secrets (matches the commitment deposited on-chain)
+                        proofResult = await this.generateZKProofV2WithSecrets(
+                            job.recipientWallet,
+                            scaledAmountWei.toString(),
+                            storedSecret,
+                            storedNullifier
+                        );
+                    } else {
+                        // Legacy: generate fresh secrets (for jobs without stored data)
+                        proofResult = await this.generateZKProofV2(job.recipientWallet, scaledAmountWei.toString());
+                    }
+
+                    const { proofArray, pubSignals, commitment } = proofResult;
 
                     console.log(`[DAEMON] 🔐 V2 Proof generated. Commitment: ${commitment.slice(0, 20)}...`);
                     console.log(`[DAEMON] 🚀 Broadcasting V2 ZK Transaction to L1 Tempo...`);
@@ -178,17 +205,16 @@ class PayPolDaemon {
                 }
 
                 console.log(`[DAEMON] ⏳ TX Sent. Hash: ${tx.hash}. Waiting for block confirmation...`);
-                await tx.wait(1); 
-                
+                await tx.wait(1);
+
                 console.log(`[DAEMON] ✅ Job ${job.id} officially settled on-chain!`);
-                
+
                 await this.prisma.timeVaultPayload.update({
                     where: { id: job.id },
                     data: { status: 'COMPLETED', zkCommitment: tx.hash }
                 });
 
             } catch (error: any) {
-                // If it fails mathematically or on-chain, it will accurately log and halt here
                 console.error(`[DAEMON] ❌ Failed to process Job ${job.id}:`, error.reason || error.message || error);
                 await this.prisma.timeVaultPayload.update({
                     where: { id: job.id },
@@ -245,16 +271,22 @@ class PayPolDaemon {
     // ZK PROOF GENERATION - V2 (Random secrets + Nullifier)
     // ═══════════════════════════════════════════════════════════
     private async generateZKProofV2(recipient: string, amount: string) {
+        const secret = generateRandomSecret();
+        const nullifier = generateRandomSecret();
+        return this.generateZKProofV2WithSecrets(recipient, amount, secret, nullifier);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ZK PROOF GENERATION - V2 with pre-stored secrets
+    // Used when frontend already deposited with a known commitment
+    // ═══════════════════════════════════════════════════════════
+    private async generateZKProofV2WithSecrets(recipient: string, amount: string, secret: string, nullifier: string) {
         let cleanRecipient = recipient.toLowerCase().trim();
         if (cleanRecipient.includes('...') || cleanRecipient.length !== 42) {
             cleanRecipient = "0x0000000000000000000000000000000000000001";
         }
 
         const recipientBigIntStr = BigInt(cleanRecipient).toString();
-
-        // 🔐 Generate random secrets per payment (NOT hardcoded anymore)
-        const secret = generateRandomSecret();
-        const nullifier = generateRandomSecret();
 
         const poseidon = await buildPoseidon();
 
@@ -275,11 +307,17 @@ class PayPolDaemon {
             nullifier,
         };
 
-        const wasmPath = path.join(__dirname, "..", "..", "apps", "dashboard", "public", "zk", "paypol_shield_v2.wasm");
-        const zkeyPath = path.join(__dirname, "..", "..", "apps", "dashboard", "public", "zk", "paypol_shield_v2_final.zkey");
+        // Resolve circuit paths (Docker: ./circuits/, Monorepo: ../../packages/circuits/)
+        const dockerWasm = path.join(__dirname, "circuits", "paypol_shield_v2.wasm");
+        const dockerZkey = path.join(__dirname, "circuits", "paypol_shield_v2_final.zkey");
+        const monoWasm = path.join(__dirname, "..", "..", "packages", "circuits", "paypol_shield_v2_js", "paypol_shield_v2.wasm");
+        const monoZkey = path.join(__dirname, "..", "..", "packages", "circuits", "paypol_shield_v2_final.zkey");
+
+        const wasmPath = fs.existsSync(dockerWasm) ? dockerWasm : monoWasm;
+        const zkeyPath = fs.existsSync(dockerZkey) ? dockerZkey : monoZkey;
 
         if (!fs.existsSync(wasmPath) || !fs.existsSync(zkeyPath)) {
-            throw new Error(`ZK V2 circuits not found at: ${wasmPath}. Run: circom paypol_shield_v2.circom --r1cs --wasm && snarkjs plonk setup`);
+            throw new Error(`ZK V2 circuits not found. Searched Docker (${dockerWasm}) and Monorepo (${monoWasm}).`);
         }
 
         const { proof, publicSignals } = await snarkjs.plonk.fullProve(circuitInputs, wasmPath, zkeyPath);

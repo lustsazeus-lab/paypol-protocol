@@ -91,14 +91,13 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
     try {
         const body = await req.json();
-        const { action, isShielded, batchTxHash, isAgentMode } = body;
+        const { action, isShielded, batchTxHash, isAgentMode, zkData } = body;
 
         if (action === 'approve') {
             if (isAgentMode) {
                 // ═══ AGENT MODE: Always COMPLETED directly ═══
                 // Agent payments use NexusV2 on-chain escrow (handled by frontend).
                 // No daemon needed — NexusV2 contract manages the trustless settlement.
-                // ZK Shield toggle does NOT affect agent escrow flow.
                 await prisma.timeVaultPayload.updateMany({
                     where: { status: "Draft" },
                     data: {
@@ -108,43 +107,30 @@ export async function PUT(req: Request) {
                     }
                 });
                 console.log(`✅ [API] Agent escrow approved → COMPLETED (NexusV2 on-chain). ZK Shield: ${isShielded}`);
-            } else if (isShielded) {
-                // ═══ PAYROLL ZK SHIELDED: Daemon simulation ═══
-                // ZK Shielded mode → PENDING → simulate daemon ZK processing → COMPLETED
+            } else if (isShielded && zkData) {
+                // ═══ PAYROLL ZK SHIELDED: Real ZK Flow ═══
+                // Frontend already deposited funds to ShieldVaultV2 with Poseidon commitment.
+                // Store ZK secrets so daemon can generate proof + call executeShieldedPayout.
                 await prisma.timeVaultPayload.updateMany({
                     where: { status: "Draft" },
                     data: {
                         status: "PENDING",
                         isShielded: true,
-                        zkProof: batchTxHash || null
+                        zkCommitment: zkData.commitment || null,
+                        zkProof: JSON.stringify({
+                            secret: zkData.secret,
+                            nullifier: zkData.nullifier,
+                            nullifierHash: zkData.nullifierHash,
+                            depositTxHash: zkData.depositTxHash,
+                            scaledAmount: zkData.scaledAmount,
+                        })
                     }
                 });
-                console.log("✅ [API] Boardroom approved (ZK Shield) → PENDING for Daemon ZK execution.");
-
-                // Simulate daemon: PENDING → PROCESSING (2s) → COMPLETED (5s)
-                setTimeout(async () => {
-                    try {
-                        await prisma.timeVaultPayload.updateMany({
-                            where: { status: "PENDING" },
-                            data: { status: "PROCESSING" }
-                        });
-                        console.log("⚙️ [Daemon] ZK proof generation in progress...");
-
-                        setTimeout(async () => {
-                            try {
-                                await prisma.timeVaultPayload.updateMany({
-                                    where: { status: "PROCESSING" },
-                                    data: { status: "COMPLETED" }
-                                });
-                                console.log("✅ [Daemon] ZK proof verified. Settlement COMPLETED.");
-                            } catch (e) { console.error("❌ [Daemon] Settlement error:", e); }
-                        }, 3000);
-                    } catch (e) { console.error("❌ [Daemon] Processing error:", e); }
-                }, 2000);
+                console.log(`✅ [API] ZK Shielded deposit confirmed. Commitment: ${(zkData.commitment || '').slice(0, 20)}... Status → PENDING for Daemon.`);
             } else {
                 // ═══ PAYROLL PUBLIC: Direct completion ═══
-                // Public mode → On-chain TX already confirmed by frontend (transfer/createJob)
-                // Skip daemon - mark as COMPLETED immediately (no ZK proof needed)
+                // Public mode → On-chain TX already confirmed by frontend (transfer)
+                // No daemon needed — mark as COMPLETED immediately.
                 await prisma.timeVaultPayload.updateMany({
                     where: { status: "Draft" },
                     data: {
