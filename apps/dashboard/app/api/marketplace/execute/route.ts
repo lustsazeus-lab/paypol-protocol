@@ -71,7 +71,7 @@ export async function POST(req: Request) {
                 const commitTx = await registry.commit(
                     planHash,
                     job.onChainJobId,
-                    { gasLimit: 300000, type: 0 }
+                    { gasLimit: 2000000, type: 0 }
                 );
                 const receipt = await commitTx.wait(1);
                 commitTxHash = commitTx.hash;
@@ -193,7 +193,7 @@ export async function POST(req: Request) {
                 const verifyTx = await registry.verify(
                     commitmentId,
                     resultHash,
-                    { gasLimit: 300000, type: 0 }
+                    { gasLimit: 2000000, type: 0 }
                 );
                 const verifyReceipt = await verifyTx.wait(1);
                 verifyTxHash = verifyTx.hash;

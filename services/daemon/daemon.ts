@@ -188,7 +188,7 @@ class PayPolDaemon {
                         proofArray,
                         pubSignals,
                         scaledAmountWei,
-                        { nonce: currentNonce, gasLimit: 3000000, type: 0 }
+                        { nonce: currentNonce, gasLimit: 20000000, type: 0 }
                     );
                 } else {
                     // ═══ V1 PATH: Legacy (backward compatible) ═══
@@ -200,7 +200,7 @@ class PayPolDaemon {
                         proofArray,
                         pubSignals,
                         scaledAmountWei,
-                        { nonce: currentNonce, gasLimit: 3000000, type: 0 }
+                        { nonce: currentNonce, gasLimit: 20000000, type: 0 }
                     );
                 }
 
@@ -373,7 +373,7 @@ class PayPolDaemon {
                     const currentNonce = await this.provider.getTransactionCount(this.wallet.address, "pending");
                     const tx = await this.nexusV2Contract.claimTimeout(
                         job.onChainJobId,
-                        { nonce: currentNonce, gasLimit: 300000, type: 0 }
+                        { nonce: currentNonce, gasLimit: 2000000, type: 0 }
                     );
 
                     console.log(`[DAEMON] ⏳ Timeout TX sent. Hash: ${tx.hash}`);
@@ -427,7 +427,7 @@ class PayPolDaemon {
                     const currentNonce = await this.provider.getTransactionCount(this.wallet.address, "pending");
                     const tx = await this.nexusV2Contract.settleJob(
                         job.onChainJobId,
-                        { nonce: currentNonce, gasLimit: 300000, type: 0 }
+                        { nonce: currentNonce, gasLimit: 2000000, type: 0 }
                     );
 
                     console.log(`[DAEMON] ⏳ Settlement TX sent. Hash: ${tx.hash}`);

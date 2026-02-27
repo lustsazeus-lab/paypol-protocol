@@ -457,7 +457,7 @@ export default function Dashboard() {
                 // Normalize to EIP-55 checksum format to prevent "bad address checksum" errors
                 const recipientWalletStr = ethers.getAddress(rawRecipient);
                 const DEADLINE_48H = BigInt(172800); // 48 hours in seconds
-                const createTx = await nexusV2.createJob(recipientWalletStr, checksummedWallet, tokenAddress, amountInUnits, DEADLINE_48H, { gasLimit: 500000 });
+                const createTx = await nexusV2.createJob(recipientWalletStr, checksummedWallet, tokenAddress, amountInUnits, DEADLINE_48H, { gasLimit: 2000000 });
                 activeTxHash = createTx.hash;
                 const receipt = await createTx.wait();
 
@@ -526,7 +526,7 @@ export default function Dashboard() {
                 // Step 2: Deposit with Poseidon commitment on-chain
                 showToast('success', 'Step 2/2: Depositing with ZK commitment...');
                 const shieldVault = new ethers.Contract(PAYPOL_SHIELD_V2_ADDRESS, SHIELD_V2_ABI, signer);
-                const depositTx = await shieldVault.deposit(commitment, amountInUnits, { gasLimit: 500000 });
+                const depositTx = await shieldVault.deposit(commitment, amountInUnits, { gasLimit: 2000000 });
                 activeTxHash = depositTx.hash;
                 await depositTx.wait();
 
