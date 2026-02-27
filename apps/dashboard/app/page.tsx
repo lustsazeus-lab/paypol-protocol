@@ -223,7 +223,7 @@ export default function Dashboard() {
 
     const initializeSession = async (wallet: string) => { setWalletAddress(wallet); try { const res = await fetch(`/api/workspace?wallet=${wallet}`); const data = await res.json(); if (data.workspace) { setCurrentWorkspace(data.workspace); localStorage.removeItem('paypol_joined_workspace'); showToast('success', `Authenticated as Administrator for ${data.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { const joinedAdminWallet = localStorage.getItem('paypol_joined_workspace'); if (joinedAdminWallet) { const joinRes = await fetch(`/api/workspace?wallet=${joinedAdminWallet}`); const joinData = await joinRes.json(); if (joinData.workspace) { setCurrentWorkspace(joinData.workspace); showToast('success', `Authenticated as Contributor for ${joinData.workspace.name}.`); fetchOnChainBalances(wallet, activeVaultToken); } else { localStorage.removeItem('paypol_joined_workspace'); setCurrentWorkspace(null); } } else setCurrentWorkspace(null); } } catch (e) { showToast('error', 'Gateway connection failed.'); } };
     const ensureTempoNetwork = useCallback(async () => {
-        const TEMPO_CHAIN_ID = '0xa5df'; // 42431
+        const TEMPO_CHAIN_ID = '0xa5bf'; // 42431
         const TEMPO_CHAIN_CONFIG = {
             chainId: TEMPO_CHAIN_ID,
             chainName: 'Tempo Moderato Testnet',
