@@ -4,8 +4,8 @@
 # and calls ShieldVaultV2.executeShieldedPayout() on-chain
 # ═══════════════════════════════════════════════════════════
 
-FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat python3 make g++
+FROM node:20-slim AS base
+RUN apt-get update -y && apt-get install -y openssl python3 make g++ procps && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -27,7 +27,5 @@ COPY circuits/ ./circuits/
 
 # Use tsx for TypeScript execution
 RUN npm install -g tsx
-
-EXPOSE 3002
 
 CMD ["tsx", "daemon.ts"]
