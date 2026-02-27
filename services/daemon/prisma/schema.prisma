@@ -1,52 +1,72 @@
-// schema.prisma
+// schema.prisma — PayPol Protocol (PostgreSQL)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL") 
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-// 🏢 Multi-tenant Workspace
+// ==========================================
+// 🏢 WORKSPACE & PAYROLL (Phase 1)
+// ==========================================
+
+// Multi-tenant Workspace
 model Workspace {
   id              String   @id @default(uuid())
-  name            String
+  name            String   @unique
   adminWallet     String   @unique
+  type            String?
   createdAt       DateTime @default(now())
   payloads        TimeVaultPayload[]
+  employees       Employee[]
 }
 
-// 🛡️ Shielded Transaction Ledger
+// Shielded Transaction Ledger
 model TimeVaultPayload {
   id              String   @id @default(uuid())
   workspaceId     String
-  
-  // --- [NEW FIELDS ADDED] ---
-  name            String?  
+  name            String?
   token           String   @default("AlphaUSD")
-  note            String?  
-  isDiscovery     Boolean  @default(false) 
-  // --------------------------
-
+  note            String?
+  isDiscovery     Boolean  @default(false)
   recipientWallet String
   isShielded      Boolean  @default(false)
-  zkCommitment    String?  
-  zkProof         String?  
-  amount          Float?   
+  zkCommitment    String?
+  zkProof         String?
+  amount          Float?
   status          String   @default("Draft")
   createdAt       DateTime @default(now())
   workspace       Workspace @relation(fields: [workspaceId], references: [id])
 }
 
-// ZK Payroll History Storage Table
+// Employee Payroll (replaces legacy sqlite employees table)
+model Employee {
+  id            String   @id @default(uuid())
+  workspaceId   String?
+  name          String   @default("Anonymous")
+  walletAddress String
+  amount        Float
+  token         String   @default("AlphaUSD")
+  note          String?
+  status        String   @default("Awaiting_Approval") // Awaiting_Approval, Pending, Vaulted, Cancel_Requested, Paid
+  createdAt     DateTime @default(now())
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@index([status])
+  @@index([walletAddress])
+}
+
+// ZK Payroll Payout History
 model PayoutRecord {
   id        String   @id @default(cuid())
-  recipient String   // Employee wallet address
-  amount    Float    // Amount (AlphaUSD)
-  txHash    String   @unique // Blockchain transaction hash
-  createdAt DateTime @default(now()) // Timestamp of transfer
+  recipient String
+  amount    Float
+  token     String   @default("AlphaUSD")
+  txHash    String   @unique
+  createdAt DateTime @default(now())
 }
 
 // 🤖 Autopilot Agent Rules (Recurring Payouts)
@@ -74,4 +94,233 @@ model EmployeeTx {
   isDiscovery   Boolean  @default(false)
   status        String   @default("AWAITING") // Status: "AWAITING", "PENDING"
   createdAt     DateTime @default(now())
+}
+
+// ==========================================
+// 🤖 AGENT MARKETPLACE
+// ==========================================
+
+// Agent profiles registered in the marketplace
+model MarketplaceAgent {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  description   String
+  category      String   // security, defi, payroll, analytics, automation, compliance, governance, tax, nft, deployment
+  skills        String   // JSON array: ["audit","solidity","reentrancy"]
+  basePrice     Float
+  webhookUrl    String?  // null = native PayPol agent
+  nativeAgentId String?  // maps to /services/agents/:id (e.g. "contract-auditor")
+  ownerWallet   String
+  avatarEmoji   String   @default("🤖")
+  isVerified    Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  totalJobs     Int      @default(0)
+  successRate   Float    @default(100.0)
+  avgRating     Float    @default(0)
+  ratingCount   Int      @default(0)
+  responseTime  Int      @default(30) // avg seconds
+  source        String   @default("native")  // native | community | eliza | crewai | langchain | olas
+  sourceUrl     String?                       // GitHub repo or framework docs URL
+  githubHandle  String?                       // Contributor's GitHub username (for community agents)
+  createdAt     DateTime @default(now())
+  jobs          AgentJob[]
+  reviews       AgentReview[]
+}
+
+// Job lifecycle: CREATED → MATCHED → NEGOTIATING → ESCROW_LOCKED → EXECUTING → COMPLETED | FAILED | DISPUTED | SETTLED | REFUNDED
+model AgentJob {
+  id              String    @id @default(uuid())
+  agentId         String
+  agent           MarketplaceAgent @relation(fields: [agentId], references: [id])
+  clientWallet    String
+  prompt          String    // original user prompt
+  taskDescription String?
+  budget          Float
+  negotiatedPrice Float?
+  platformFee     Float?    // 8% of negotiated
+  token           String    @default("AlphaUSD")
+  status          String    @default("CREATED")
+  result          String?   // JSON: agent output
+  escrowTxHash    String?
+  settleTxHash    String?
+  onChainJobId    Int?      // Maps to PayPolNexusV2 contract's job ID
+  disputeReason   String?   // Why employer disputed
+  deadline        DateTime? // Auto-refund deadline (block.timestamp + deadlineDuration)
+  executionTime   Int?      // seconds
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+  reviews         AgentReview[]
+
+  // ── A2A (Agent-to-Agent) Fields ──
+  parentJobId     String?   // Points to parent AgentJob.id for A2A chains
+  parentAgentId   String?   // Which agent spawned this sub-task (e.g. "coordinator")
+  a2aChainId      String?   // Groups all jobs in the same A2A chain
+  depth           Int       @default(0) // Recursion depth in A2A chain
+
+  // ── AI Proof Fields ──
+  planHash        String?   // keccak256 of agent's planned approach
+  resultHash      String?   // keccak256 of actual result
+  commitmentId    String?   // On-chain AIProofRegistry commitment ID
+  commitTxHash    String?   // TX hash of on-chain commitment
+  verifyTxHash    String?   // TX hash of on-chain verification
+  proofMatched    Boolean?  // Did planHash match resultHash?
+}
+
+// Post-job reviews and ratings
+model AgentReview {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       AgentJob @relation(fields: [jobId], references: [id])
+  agentId   String
+  agent     MarketplaceAgent @relation(fields: [agentId], references: [id])
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+// ==========================================
+// 🔄 STREAM SETTLEMENT (Feature 7)
+// ==========================================
+
+// Progressive milestone-based escrow (PayPolStreamV1 contract)
+model StreamJob {
+  id              String       @id @default(uuid())
+  agentJobId      String?      @unique          // Links to AgentJob if originated from marketplace
+  clientWallet    String
+  agentWallet     String
+  agentName       String?
+  totalBudget     Float
+  releasedAmount  Float        @default(0)
+  status          String       @default("ACTIVE")  // ACTIVE, COMPLETED, CANCELLED
+  onChainStreamId Int?
+  streamTxHash    String?
+  deadline        DateTime?
+  createdAt       DateTime     @default(now())
+  milestones      Milestone[]
+
+  @@index([clientWallet])
+  @@index([agentWallet])
+}
+
+// Individual milestone within a stream
+model Milestone {
+  id            String    @id @default(uuid())
+  streamJobId   String
+  streamJob     StreamJob @relation(fields: [streamJobId], references: [id])
+  index         Int
+  amount        Float
+  deliverable   String
+  proofHash     String?
+  status        String    @default("PENDING")  // PENDING, SUBMITTED, APPROVED, REJECTED
+  submitTxHash  String?
+  approveTxHash String?
+  rejectReason  String?
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([streamJobId, index])
+}
+
+// In-app notification system
+model Notification {
+  id          String   @id @default(uuid())
+  wallet      String
+  type        String   // stream:milestone_submitted, stream:milestone_approved, etc.
+  title       String
+  message     String
+  streamJobId String?
+  milestoneId String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([wallet, isRead])
+  @@index([wallet, createdAt])
+}
+
+// ==========================================
+// 💳 FIAT ON-RAMP (Stripe Integration)
+// ==========================================
+
+// Tracks credit card → crypto → escrow flow
+model FiatPayment {
+  id              String    @id @default(uuid())
+  stripeSessionId String    @unique
+  stripePaymentId String?
+  agentJobId      String?
+  userWallet      String
+  amountUSD       Float
+  amountCrypto    Float?
+  token           String    @default("AlphaUSD")
+  status          String    @default("PENDING")  // PENDING, PAID, CRYPTO_SENT, ESCROWED, FAILED
+  escrowTxHash    String?
+  transferTxHash  String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  @@index([userWallet])
+  @@index([stripeSessionId])
+}
+
+// ==========================================
+// ⚡ CONDITIONAL PAYROLL
+// ==========================================
+
+// Rules that trigger payroll when conditions are met
+model ConditionalRule {
+  id              String    @id @default(uuid())
+  name            String                          // Rule name/label
+  recipients      String                          // JSON: [{ name, wallet, amount, token, note }]
+  conditions      String                          // JSON: [{ type, param, operator, value }]
+  conditionLogic  String    @default("AND")       // AND / OR
+  status          String    @default("Watching")  // Watching, Paused, Triggered, Expired
+  triggerCount    Int       @default(0)
+  maxTriggers     Int       @default(1)           // How many times to trigger (-1 = infinite)
+  note            String?
+  createdAt       DateTime  @default(now())
+  triggeredAt     DateTime?
+}
+
+// ==========================================
+// 📈 ESCROW YIELD GENERATION (Feature 8)
+// ==========================================
+
+// Tracks yield accrued on locked escrow funds
+model EscrowYield {
+  id            String    @id @default(uuid())
+  jobId         String                          // ref AgentJob id
+  principal     Float                           // locked escrow amount
+  token         String    @default("AlphaUSD")
+  apy           Float     @default(5.0)         // 5% APY
+  yieldEarned   Float     @default(0)
+  status        String    @default("Accruing")  // Accruing | Settled | Withdrawn
+  startedAt     DateTime  @default(now())
+  settledAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([jobId])
+  @@index([status])
+}
+
+// ==========================================
+// 👛 EMBEDDED WALLETS (Feature 9)
+// ==========================================
+
+// Per-agent/employee wallet with encrypted private key
+model EmbeddedWallet {
+  id              String    @id @default(uuid())
+  label           String                          // "Agent: ContractGuard" or "Employee: John"
+  ownerType       String                          // "agent" | "employee"
+  ownerId         String?                         // agentId or employee identifier
+  address         String    @unique
+  encryptedKey    String                          // AES-256-GCM encrypted private key
+  iv              String                          // Initialization vector
+  authTag         String                          // GCM auth tag
+  balance         Float     @default(0)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+
+  @@index([ownerType])
+  @@index([address])
 }
