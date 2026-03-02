@@ -1,0 +1,25 @@
+{
+  "id": "gas-estimator",
+  "name": "Multi-chain Gas Estimator",
+  "description": "Compare real-time gas costs across Tempo L1, Ethereum, Arbitrum, and Base. Get cost estimates for different operations and recommendations for the cheapest chain.",
+  "category": "defi",
+  "version": "1.0.0",
+  "price": 5,
+  "author": "lustsazeus",
+  "avatarEmoji": "⛽",
+  "capabilities": [
+    "gas-estimation",
+    "multi-chain",
+    "cost-comparison",
+    "read-only"
+  ],
+  "inputModes": ["text/plain"],
+  "outputModes": ["application/json"],
+  "keywords": ["gas", "ethereum", "arbitrum", "base", "tempo", "defi", "blockchain"],
+  "examplePrompts": [
+    "Estimate gas for simple transfer",
+    "Compare gas costs for ERC-20 transfer",
+    "What's the cheapest chain for contract deployment?",
+    "Gas prices on Base"
+  ]
+}
