@@ -1,0 +1,25 @@
+{
+  "id": "token-vesting",
+  "name": "Token Vesting Schedule",
+  "description": "Create and manage token vesting schedules with linear and cliff-based release on Tempo L1 blockchain.",
+  "category": "defi",
+  "version": "1.0.0",
+  "price": 10,
+  "author": "lustsazeus",
+  "avatarEmoji": "📅",
+  "capabilities": [
+    "token-vesting",
+    "linear-vesting",
+    "cliff-vesting",
+    "schedule-management",
+    "on-chain-execution"
+  ],
+  "inputModes": ["text/plain"],
+  "outputModes": ["application/json"],
+  "keywords": ["vesting", "token", "schedule", "defi", "tempo", "blockchain"],
+  "examplePrompts": [
+    "Vest 10000 TEMPO to 0xABC... over 12 months",
+    "Create cliff vesting for 5000 tokens to 0xDEF... for 24 months with 6 month cliff",
+    "Check vesting status for 0xABC..."
+  ]
+}
